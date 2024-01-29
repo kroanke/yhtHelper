@@ -1,0 +1,16 @@
+requests
+selenium
+selenium.webdriver.common.by
+selenium.webdriver.support.ui
+selenium.webdriver.support
+selenium.webdriver.common.keys
+tkcalendar
+tkinter
+tkinter
+datetime
+threading
+queue
+time
+ttkthemes
+re
+tkinter
