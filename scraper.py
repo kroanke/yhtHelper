@@ -14,9 +14,9 @@ from ttkthemes import ThemedTk
 from telegramMsg import send_to_telegram
 import re
 
+
 #6129701763
 chat_id = 5334521381
-
 def web_scraping_worker(city_from, city_to, departure_time, queue):
     while True:
         try:
@@ -72,8 +72,6 @@ def web_scraping_worker(city_from, city_to, departure_time, queue):
                     pattern = r'\((\d+)\)'
                     matches = re.findall(pattern, seat_type_value)
                     
-                    print("utku")
-                    print(matches)
                     try:
                         
                         if len(matches) > 0:
@@ -121,8 +119,12 @@ def web_scraping_worker(city_from, city_to, departure_time, queue):
             web_scraping_worker(city_from, city_to, departure_time, queue)
 
 def submit():
+    switchButton()
     loading_row_id = table.insert('', 'end', values=("Loading...", "", "", ""))
     table.update()
+
+    
+
     
     all_rows_data = []
     city_from = city_from_var.get()
@@ -133,6 +135,7 @@ def submit():
     result_queue = queue.Queue()
     web_scraping_thread = threading.Thread(target=web_scraping_worker, args=(city_from, city_to, departure_time, result_queue))
     web_scraping_thread.start()
+
 
     
     root.after(100, check_result_queue, web_scraping_thread, result_queue, loading_row_id)
@@ -149,18 +152,27 @@ def check_result_queue(web_scraping_thread, result_queue, loading_row_id):
         
         for index, row_data in enumerate(all_rows_data):
             table.insert('', index, values=row_data)
+        
+        switchButton()
 
 def update_combobox_values(event, var, combobox, options):
     typed_text = var.get().replace('İ', 'i').lower()
-    
+
     if not typed_text:
         combobox['values'] = options
     else:
-        
-
-        matching_options = [option for option in options if typed_text in option.replace('İ', 'i').lower() ]
+        matching_options = sorted([option for option in options if typed_text in option.replace('İ', 'i').lower()],
+                                  key=lambda x: x.lower().index(typed_text))
         combobox['values'] = matching_options
-        
+
+def switchButton():
+    if submit_button["state"] == "normal":
+        submit_button["state"] = "disabled"
+        submit_button["text"] = "Searching.."
+    else:
+        submit_button["state"] = "normal"
+        submit_button["text"] = "Search"
+
 root = ThemedTk(theme="arc") 
 
 root.title("Train Ticket Search")
@@ -202,7 +214,7 @@ cal.grid(row=2, column=1, padx=10, pady=10, sticky='w')
 
 submit_button = tk.Button(
     root,
-    text="Submit",
+    text="Search",
     command=submit,
     font=("Arial", 14, "bold"),
     bg="#4d4d4d",
