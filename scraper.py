@@ -1,5 +1,4 @@
-# GitHub: https://github.com/kroanke
-# Author: kroanke
+# Author: kroanke, MTosun9
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
