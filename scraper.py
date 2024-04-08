@@ -19,9 +19,19 @@ from telegramMsg import send_to_telegram
 
 
 
+
 child_elements = []
-def web_scraping_worker(city_from, city_to, departure_time, queue):
+web_scraping_thread = None  # Declare web_scraping_thread as a global variable
+timeAdjustment = False
+def web_scraping_worker(city_from, city_to, departure_time, timeFrom, timeTo, time_adjustment_state, queue):
+    if time_adjustment_state == 1:
+        print("true")
+        timeAdjustment = True
+    else:
+        print("false")
+        timeAdjustment = False
     while True:
+        
         try:
             print("web_scraping_worker STARTED...")
             options = webdriver.ChromeOptions()
@@ -52,7 +62,7 @@ def web_scraping_worker(city_from, city_to, departure_time, queue):
                 switchButton()
                 if table.get_children():
                     table.delete(*table.get_children())
-                messagebox.showerror("Hata!", "İsteğinize Uygun Sefer Bulunmamaktadır!")
+                messagebox.showerror("Hata!", "İsteğinize Uygun Sefer Bulunmamaktadir!")
                 print("No Route Found!")
                 return
             else:
@@ -85,6 +95,16 @@ def web_scraping_worker(city_from, city_to, departure_time, queue):
                         pattern = r'\((\d+)\)'
                         matches = re.findall(pattern, seat_type_value)
 
+
+                        intDeparture = int(time_departure_value.replace(":", ""))
+                        intArrival = int(time_arrival_value.replace(":",""))
+
+                        if (timeFrom and not timeFrom.isspace()) and (timeTo  and not timeTo.isspace()):
+                            
+                            intTimeFrom = int(timeFrom.replace(":", ""))
+                            intTimeTo = int(timeTo.replace(":", ""))
+                        else:
+                            print("b")
                         try:
 
                             if len(matches) > 0:
@@ -98,14 +118,26 @@ def web_scraping_worker(city_from, city_to, departure_time, queue):
                             print(f"INT CAST EXCEPTION {e}")
                             pass
                         if seat_type_value != 0:
-                            row_data = [time_departure_value, time_arrival_value, seat_type_value, price_value]
-                            all_rows_data.append(row_data)
+                            if timeAdjustment:
+                                print("a")
+                                if intDeparture >= intTimeFrom and intArrival <= intTimeTo and intArrival > intTimeFrom:
+                                    row_data = [time_departure_value, time_arrival_value, seat_type_value, price_value]
+                                    all_rows_data.append(row_data)
+                                else:
+                                    print("Bilet var ama secilen saatler arasinda yok")
+
+                            else:
+                                row_data = [time_departure_value, time_arrival_value, seat_type_value, price_value]
+                                all_rows_data.append(row_data)
+                            
+                            
                     except Exception as e:
                         print(f"Exception occurred! {e}")
                         print("Trying again..")
                         driver.quit()
-                        web_scraping_worker(city_from, city_to, departure_time, queue)
+                        web_scraping_worker(city_from, city_to, departure_time, timeFrom, timeTo,time_adjustment_state, queue)
 
+                
                 queue.put(all_rows_data)
                 driver.quit()
                 print("Search ENDED!")
@@ -118,14 +150,14 @@ def web_scraping_worker(city_from, city_to, departure_time, queue):
                             bilet[2]) + " adet bilet bulunmustur."
                         messages.append(a)
 
-                    send_to_telegram(messages)
+                    # send_to_telegram(messages)
                     driver.quit()
                     return
                 else:
                     print("NO DATA FOUND")
                     driver.quit()
                     time.sleep(3)
-                    web_scraping_worker(city_from, city_to, departure_time, queue)
+                    web_scraping_worker(city_from, city_to, departure_time,timeFrom, timeTo, time_adjustment_state, queue)
 
 
         except Exception as e:
@@ -139,10 +171,11 @@ def web_scraping_worker(city_from, city_to, departure_time, queue):
             else:
                 print(f"Error in web scraping worker: {e}")
                 driver.quit()
-                web_scraping_worker(city_from, city_to, departure_time, queue)
+                web_scraping_worker(city_from, city_to, departure_time, timeFrom, timeTo, time_adjustment_state, queue)
 
 
 def submit():
+    global web_scraping_thread
     if not city_from_var.get() or not city_to_var.get():
         messagebox.showerror("Error", "Lütfen gerekli alanlari doldurun.")
         return
@@ -158,14 +191,22 @@ def submit():
     departure_time = cal.get_date()
     departure_time = datetime.strptime(departure_time, "%m/%d/%y").strftime("%d.%m.%Y")
 
+    timeFrom =arrival_time_from_var.get()
+    timeTo =arrival_time_to_var.get()
+    print(timeFrom)
+    print(timeTo)
+    
     result_queue = queue.Queue()
     web_scraping_thread = threading.Thread(target=web_scraping_worker,
-                                           args=(city_from, city_to, departure_time, result_queue))
+                                           args=(city_from, city_to, departure_time, timeFrom, timeTo,time_adjustment_var.get(), result_queue))
     web_scraping_thread.start()
+
+    
 
     root.after(100, check_result_queue, web_scraping_thread, result_queue, loading_row_id)
 
 
+        
 def check_result_queue(web_scraping_thread, result_queue, loading_row_id):
     if web_scraping_thread.is_alive():
         root.after(100, check_result_queue, web_scraping_thread, result_queue, loading_row_id)
@@ -178,7 +219,30 @@ def check_result_queue(web_scraping_thread, result_queue, loading_row_id):
             table.insert('', index, values=row_data)
 
         switchButton()
+def toggle_time_adjustment():
+    if time_adjustment_var.get() == 1:
+        arrival_time_from_dropdown.config(state="readonly", takefocus=True)
+        arrival_time_to_dropdown.config(state="readonly", takefocus=True)
+        arrival_time_from_dropdown['background'] = 'white'
+        arrival_time_to_dropdown['background'] = 'white'
+    else:
+        arrival_time_from_dropdown.config(state="disabled", takefocus=False)
+        arrival_time_to_dropdown.config(state="disabled", takefocus=False)
+        arrival_time_from_dropdown['background'] = 'gray'
+        arrival_time_to_dropdown['background'] = 'gray'
 
+
+def update_arrival_time_to_options(event):
+    selected_from_time = arrival_time_from_var.get()
+    arrival_time_to_values = [f"{hour:02d}:00" for hour in range(int(selected_from_time[:2]) + 1, 24)]
+    arrival_time_to_dropdown['values'] = arrival_time_to_values
+def update_arrival_time_to_state(event):
+    selected_from_time = arrival_time_from_var.get()
+    current_to_time = arrival_time_to_var.get()
+    if current_to_time and current_to_time < selected_from_time:
+        arrival_time_to_var.set("")
+    arrival_time_to_values = [f"{hour:02d}:00" for hour in range(int(selected_from_time[:2]) + 1, 24)]
+    arrival_time_to_dropdown['values'] = arrival_time_to_values
 
 def update_combobox_values(event, var, combobox, options):
     typed_text = var.get().replace('İ', 'i').lower()
@@ -189,7 +253,10 @@ def update_combobox_values(event, var, combobox, options):
         matching_options = sorted([option for option in options if typed_text in option.replace('İ', 'i').lower()],
                                   key=lambda x: x.lower().index(typed_text))
         combobox['values'] = matching_options
-
+def handle_table_click(event):
+    item = table.selection()[0]  # Get the selected item
+    values = table.item(item, 'values')  # Get the values of the selected item
+    print("Clicked on item:", values)
 
 def switchButton():
     if submit_button["state"] == "normal":
@@ -199,7 +266,12 @@ def switchButton():
         submit_button["state"] = "normal"
         submit_button["text"] = "Search"
 
-
+def show_warning_popup(event):
+    print(event.widget.cget("state") == "disabled")
+    print(event.widget.state())
+    if "disabled" in event.widget.state():
+        messagebox.showwarning("Warning", "Saat ayarini acmak icin sol alttaki 'Saat Ayari' kutucugunu isaretleyin")
+        
 with open('yhtHelper.txt', 'r') as file:
     yhtHelper = file.read()
 
@@ -286,6 +358,31 @@ city_to_dropdown['values'] = cities
 city_to_dropdown.bind("<KeyRelease>",
                       lambda event: update_combobox_values(event, city_to_var, city_to_dropdown, cities))
 
+
+tk.Label(root, text="Arrival Time From:").grid(row=2, column=0, padx=10, pady=10, sticky='e')
+arrival_time_from_var = tk.StringVar()
+arrival_time_from_dropdown = ttk.Combobox(root, textvariable=arrival_time_from_var, state="readonly")
+arrival_time_from_dropdown.grid(row=2, column=1, padx=10, pady=10, sticky='w')
+arrival_time_from_dropdown['values'] = [f"{hour:02d}:00" for hour in range(24)]
+
+tk.Label(root, text="Arrival Time To:").grid(row=3, column=0, padx=10, pady=10, sticky='e')
+arrival_time_to_var = tk.StringVar()
+arrival_time_to_dropdown = ttk.Combobox(root, textvariable=arrival_time_to_var, state="readonly")
+arrival_time_to_dropdown.grid(row=3, column=1, padx=10, pady=10, sticky='w')
+arrival_time_to_dropdown['values'] = [f"{hour:02d}:00" for hour in range(24)]
+
+arrival_time_from_dropdown.bind("<<ComboboxSelected>>", update_arrival_time_to_options)
+arrival_time_from_dropdown.bind("<<ComboboxSelected>>", update_arrival_time_to_state)
+
+arrival_time_from_dropdown.bind("<Button-1>", show_warning_popup)
+arrival_time_to_dropdown.bind("<Button-1>", show_warning_popup)
+
+time_adjustment_var = tk.IntVar()
+time_adjustment_checkbox = tk.Checkbutton(root, text="Saat Ayarı", variable=time_adjustment_var, command=toggle_time_adjustment)
+time_adjustment_checkbox.grid(row=5, column=0, sticky='w')
+toggle_time_adjustment()
+
+
 current_date_time = datetime.now()
 today = date.today()
 maxDate = today + timedelta(days=30)
@@ -295,7 +392,10 @@ currentDay = current_date_time.day
 cal = Calendar(root, selectmode="day", year=currentYear, month=currentMonth, day=currentDay, mindate=today,
                maxdate=maxDate, background="#4d4d4d",
                selectbackground="#4d4d4d")
-cal.grid(row=2, column=1, padx=10, pady=10, sticky='w')
+cal.grid(row=4, column=1, padx=10, pady=10, sticky='w')
+
+
+
 
 submit_button = tk.Button(
     root,
@@ -309,7 +409,7 @@ submit_button = tk.Button(
     relief="raised",
     activebackground="#3c3c3c",
 )
-submit_button.grid(row=3, column=0, columnspan=2, pady=20)
+submit_button.grid(row=5, column=1, pady=10)
 
 table = ttk.Treeview(root, columns=('Time Departure', 'Time Arrival', 'Seat Type', 'Price'), show='headings')
 
@@ -317,15 +417,20 @@ table.heading('Time Departure', text='Çıkış Saati')
 table.heading('Time Arrival', text='Varış Saati')
 table.heading('Seat Type', text='Koltuk Sayısı')
 table.heading('Price', text='Fiyat')
-
-table.grid(row=4, column=0, columnspan=2, pady=10, sticky='nsew')
+table.bind("<<TreeviewSelect>>", handle_table_click)
+table.grid(row=6, column=0, columnspan=2, pady=10, sticky='nsew')
 
 scrollbar = ttk.Scrollbar(root, orient="vertical", command=table.yview)
-scrollbar.grid(row=4, column=2, sticky='ns')
+scrollbar.grid(row=7, column=2, sticky='ns')
 table.configure(yscrollcommand=scrollbar.set)
 
 for i in range(5):
     root.grid_rowconfigure(i, weight=1)
     root.grid_columnconfigure(i, weight=1)
+
+
+#root.geometry("630x780")
+#root.resizable(False, False)
+
 
 root.mainloop()
