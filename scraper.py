@@ -16,14 +16,26 @@ from ttkthemes import ThemedTk
 import re
 from tkinter import messagebox
 from telegramMsg import send_to_telegram
+import pickle
+import webbrowser
 
 
-
-
+url = ""
+driver = None
 child_elements = []
 web_scraping_thread = None  # Declare web_scraping_thread as a global variable
 timeAdjustment = False
+cityFrom = None
+cityTo = None
+departureTime = None
+stop_thread_flag = False
+
 def web_scraping_worker(city_from, city_to, departure_time, timeFrom, timeTo, time_adjustment_state, queue):
+    global cityFrom
+    global cityTo
+    global departureTime
+    global stop_thread_flag
+
     if time_adjustment_state == 1:
         print("true")
         timeAdjustment = True
@@ -43,6 +55,11 @@ def web_scraping_worker(city_from, city_to, departure_time, timeFrom, timeTo, ti
             driver = webdriver.Chrome(options=options)
             driver.wait = WebDriverWait(driver, 2)
             driver.get("https://ebilet.tcddtasimacilik.gov.tr/view/eybis/tnmGenel/tcddWebContent.jsf")
+
+           
+            cityFrom = city_from
+            cityTo = city_to
+            departureTime = departure_time
 
             city_from_input = driver.find_element(By.NAME, "nereden").send_keys(city_from)
             city_to_input = driver.find_element(By.NAME, "nereye").send_keys(city_to)
@@ -137,7 +154,7 @@ def web_scraping_worker(city_from, city_to, departure_time, timeFrom, timeTo, ti
                         driver.quit()
                         web_scraping_worker(city_from, city_to, departure_time, timeFrom, timeTo,time_adjustment_state, queue)
 
-                
+                url = driver.current_url
                 queue.put(all_rows_data)
                 driver.quit()
                 print("Search ENDED!")
@@ -193,8 +210,6 @@ def submit():
 
     timeFrom =arrival_time_from_var.get()
     timeTo =arrival_time_to_var.get()
-    print(timeFrom)
-    print(timeTo)
     
     result_queue = queue.Queue()
     web_scraping_thread = threading.Thread(target=web_scraping_worker,
@@ -202,7 +217,8 @@ def submit():
     web_scraping_thread.start()
 
     
-
+    submit_button.grid_remove()
+    cancel_button.grid()
     root.after(100, check_result_queue, web_scraping_thread, result_queue, loading_row_id)
 
 
@@ -254,9 +270,60 @@ def update_combobox_values(event, var, combobox, options):
                                   key=lambda x: x.lower().index(typed_text))
         combobox['values'] = matching_options
 def handle_table_click(event):
+    global url
     item = table.selection()[0]  # Get the selected item
     values = table.item(item, 'values')  # Get the values of the selected item
     print("Clicked on item:", values)
+
+    if url:
+        print(url)
+        
+def handle_table_double_click(event):
+    try:
+        global cityFrom
+        global cityTo
+        global departureTime
+        
+        url = "https://ebilet.tcddtasimacilik.gov.tr/view/eybis/tnmGenel/tcddWebContent.jsf"
+        options = webdriver.ChromeOptions()
+        options.add_argument("--window-size=1920,1200")
+        options.add_argument('user-agent=fake-useragent')
+        options.add_experimental_option("detach", True)
+
+        driver = webdriver.Chrome(options=options)
+        driver.get(url)
+        
+        wait = WebDriverWait(driver, 10)  # Adjust the timeout as needed
+        
+        city_from_input = wait.until(EC.presence_of_element_located((By.NAME, "nereden")))
+        city_from_input.send_keys(cityFrom)
+        
+        city_to_input = wait.until(EC.presence_of_element_located((By.NAME, "nereye")))
+        city_to_input.send_keys(cityTo)
+        
+        departure_input = wait.until(EC.presence_of_element_located((By.NAME, "trCalGid_input")))
+        departure_input.clear()
+        departure_input.send_keys(departureTime)
+
+        departure_input.send_keys(Keys.TAB)
+        
+        submit_button = wait.until(EC.element_to_be_clickable((By.NAME, "btnSeferSorgula")))
+        submit_button.click()
+
+    except Exception as e:
+        print("An error occurred:", e)
+
+
+def handleCancel():
+    global stop_thread_flag
+    stop_thread_flag = True
+    
+    
+    
+    # Show the SEARCH button and hide the CANCEL button
+    cancel_button.grid_remove()
+    submit_button.grid()        
+    
 
 def switchButton():
     if submit_button["state"] == "normal":
@@ -411,6 +478,22 @@ submit_button = tk.Button(
 )
 submit_button.grid(row=5, column=1, pady=10)
 
+cancel_button = tk.Button(
+    root,
+    text="Cancel",
+    command=handleCancel,
+    font=("Arial", 14, "bold"),
+    bg="#4d4d4d",
+    fg="white",
+    padx=20,
+    pady=10,
+    relief="raised",
+    activebackground="#3c3c3c",
+)
+cancel_button.grid(row=5, column=1, pady=10)
+cancel_button.grid_remove()
+
+
 table = ttk.Treeview(root, columns=('Time Departure', 'Time Arrival', 'Seat Type', 'Price'), show='headings')
 
 table.heading('Time Departure', text='Çıkış Saati')
@@ -418,6 +501,7 @@ table.heading('Time Arrival', text='Varış Saati')
 table.heading('Seat Type', text='Koltuk Sayısı')
 table.heading('Price', text='Fiyat')
 table.bind("<<TreeviewSelect>>", handle_table_click)
+table.bind("<Double-1>", handle_table_double_click)
 table.grid(row=6, column=0, columnspan=2, pady=10, sticky='nsew')
 
 scrollbar = ttk.Scrollbar(root, orient="vertical", command=table.yview)
